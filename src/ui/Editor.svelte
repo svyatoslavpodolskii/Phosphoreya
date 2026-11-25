@@ -63,6 +63,8 @@
  let mediaPanel=$state<NoteMedia>();async function persistForMedia(){if(saving)throw Error('Дождитесь сохранения.');saving=true;try{const atom=await onsave(saveInput(),$state.snapshot(add),$state.snapshot(remove),true);draft={...atom};add=[];remove=[];await checkpoint();return atom.id;}finally{saving=false;}}
  function pasteMedia(e:ClipboardEvent){const files=e.clipboardData?.files;if(files?.length&&mediaPanel){e.preventDefault();void mediaPanel.files(files);}}
  function dropMedia(e:DragEvent){if(e.dataTransfer?.files.length&&mediaPanel){e.preventDefault();void mediaPanel.files(e.dataTransfer.files);}}
+ /** The card stays in the media list; a reference is also placed at the caret. */
+ async function insertMediaRef(meta:{id:string;name:string;mime:string}){await tick();if(raw)draft.content=(draft.content||'')+'\n\n!['+'media:'+meta.name+'](phosphoreya-asset:'+meta.id+')';else visual?.insertMedia(meta.id,meta.name,meta.mime);}
  function prepareDelete(){if(!saving)confirmDelete=true;}
 
  function applyType(id:string){const t=types.find(t=>t.id===id);draft.type=id.startsWith('builtin.templates:')?id.split(':').pop()!:id;if(t){draft.appearance={...draft.appearance,...t.appearance,icon:t.icon};if(!draft.content&&t.content)draft.content=t.content;}}
@@ -100,7 +102,7 @@
  {#if quickLinks}<div class="quick-link-picker"><input bind:this={quickInput} aria-label="Быстрая связь" placeholder="Найти заметку…" bind:value={quickQuery}/>{#each data.atoms.filter(a=>a.id!==draft.id&&normalize(a.title+' '+a.aliases.join(' ')).includes(normalize(quickQuery))).slice(0,8) as atom}<button type="button" onclick={()=>insertLink(atom)}>{atom.title}</button>{/each}</div>{/if}
  {#if !raw}<RichText bind:this={visual} value={draft.content||''} onchange={content=>draft.content=content} onwiki={openWiki} disabled={saving||confirmDelete}/>{:else}<textarea bind:this={textArea} oninput={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onselect={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onkeyup={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onclick={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} class="note-content" aria-label="Текст" placeholder="Пишите свободно…" bind:value={draft.content}></textarea>{/if}
 
- <div class="note-body-media">{#if core}<NoteMedia bind:this={mediaPanel} {core} {mediaEnabled} {audioEnabled} {transcriptionEnabled} value={attachments(draft as Atom)} onchange={value=>draft.properties={...draft.properties,[ATTACHMENTS]:value}} onpersist={persistForMedia}/>{/if}</div>
+ <div class="note-body-media">{#if core}<NoteMedia bind:this={mediaPanel} {core} {mediaEnabled} {audioEnabled} {transcriptionEnabled} value={attachments(draft as Atom)} onchange={value=>draft.properties={...draft.properties,[ATTACHMENTS]:value}} onpersist={persistForMedia} oninsert={insertMediaRef}/>{/if}</div>
  </div>
  {#if confirmDelete}<div class="confirm"><p>Удалить атом и его связи? Локальная копия останется в настройках.</p><button type="button" disabled={saving} onclick={async()=>{saving=true;try{writer.cancel();await writer.flush();await ondelete(draft.id!);await storage.transaction([{kind:'setting',key:EDITOR_CHECKPOINT,value:null}]);}catch(e){error=(e as Error).message;}finally{saving=false;}}}>Удалить</button><button type="button" onclick={()=>confirmDelete=false}>Отмена</button></div>{/if}
  <DraftStatus phase={checkpointState} changedAt={checkpointChangedAt}/>
@@ -119,6 +121,10 @@
  .note-editor .note-fields>:global(.note-content){padding:16px;border:1px solid color-mix(in srgb,var(--theme-border),transparent 25%);border-radius:18px;background:color-mix(in srgb,var(--theme-surfaceAlt),transparent 30%);scrollbar-width:thin;scrollbar-color:var(--theme-border) transparent;scrollbar-gutter:stable;overscroll-behavior:contain;min-width:0;resize:none}
  .note-editor .note-fields>:global(.note-content):focus-within{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-accent),transparent 82%);border-color:color-mix(in srgb,var(--theme-accent),transparent 55%)}
  .note-editor .note-fields>.writing-tools{border:1px solid color-mix(in srgb,var(--theme-border),transparent 35%);border-radius:16px;background:var(--theme-surfaceAlt);padding:5px;gap:2px;scrollbar-width:none;overscroll-behavior-x:contain}
+ .writing-tools button{display:grid;place-items:center;min-height:38px;min-width:36px;padding:7px;border-radius:11px;color:var(--theme-text);flex-shrink:0}
+ .writing-tools button:hover,.note-heading .icon-button:hover{background:color-mix(in srgb,var(--theme-text),transparent 93%)}
+ .writing-tools button:active,.note-heading .icon-button:active{background:color-mix(in srgb,var(--theme-accent),transparent 86%)}
+ .writing-tools svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round;flex:none}
  .note-editor .note-fields>.note-body-media{margin:0;padding:0;background:transparent;border:0}
  .note-editor .note-fields>.note-body-media:empty{display:none}
  .note-editor .note-fields>.note-body-media :global(.note-media){display:flex;flex-direction:column;gap:10px}

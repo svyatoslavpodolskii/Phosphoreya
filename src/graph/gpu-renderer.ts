@@ -1,6 +1,6 @@
 import {GpuRings} from './gpu-rings';
 import {GpuCurves} from './gpu-curves';
-import { Container, Graphics, Sprite, Texture, WebGLRenderer } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture, TextureSource, TextureStyle, WebGLRenderer } from 'pixi.js';
 import { measureText, labelSize } from './footprint';
 import { nodeShape, iconSprite, iconLegible } from './sprites';
 import type { Camera } from './model';
@@ -131,6 +131,9 @@ export class GpuMapRenderer {
     private textureBuilds = 0;
     private readonly cacheBytes = 64 * 1024 * 1024;
     private readonly cacheNodes = 2048;
+    /** Sources destroyed this frame stay unbound until the next one: a retired
+     *  texture may still sit in the batcher's element list of the current render. */
+    private retired: TextureSource[] = [];
     private lost = false;
     private onlost = (event: Event) => { event.preventDefault(); this.lost = true; this.onchange(); };
     private onrestored = () => { this.lost = false; this.invalidate(); this.onchange(); };
@@ -189,7 +192,7 @@ export class GpuMapRenderer {
     }
     private releaseBody(key: string) {
         const entry = this.bodies.get(key);
-        if (entry && !--entry.refs) { entry.texture.destroy(true); this.textureBytes -= entry.bytes; this.bodies.delete(key); }
+        if (entry && !--entry.refs) { this.retire(entry.texture); this.textureBytes -= entry.bytes; this.bodies.delete(key); }
     }
     private bodyTexture(n: GpuNode) {
         const key = [n.radius,n.shape,n.style,n.color,n.ink,n.strokeWidth,n.soft].join('|');
@@ -203,16 +206,35 @@ export class GpuMapRenderer {
             if (n.soft) { const g=ctx.createRadialGradient(-n.radius*.3,-n.radius*.4,0,0,0,n.radius*1.5);g.addColorStop(0,n.color+'30');g.addColorStop(1,n.color+'08');ctx.fillStyle=g; }
             else ctx.fillStyle=n.color+'18';
             const path=nodeShape(n.shape,n.radius).path;ctx.fill(path);ctx.strokeStyle=n.ink;ctx.lineWidth=n.strokeWidth;if(n.style==='dashed')ctx.setLineDash([5,4]);ctx.stroke(path);
-            const texture=Texture.from(canvas);
-            if(texture.source?.style){texture.source.autoGenerateMipmaps=true;texture.source.style.addressMode='clamp-to-edge';texture.source.style.scaleMode='linear';}
+            // A private source keeps destroy cycles out of Pixi's shared Texture.from
+            // cache: re-rasterizing the same body after eviction must never meet the
+            // destroyed source again (it crashed zoom-out with a null style).
+            // Mipmaps stay off: an ungenerated pyramid samples as fully transparent.
+            const texture=new Texture({source:new TextureSource({resource:canvas,autoGenerateMipmaps:false,mipmapFilter:"nearest"})});
+            texture.source.style.addressMode='clamp-to-edge';
+            texture.source.style.scaleMode='linear';
             entry={texture,refs:0,bytes:Math.ceil(canvas.width*canvas.height*4*4/3),size};this.bodies.set(key,entry);this.textureBytes+=entry.bytes;this.built();
         }
         entry.refs++;return {key,...entry};
     }
+    /** Destroying a texture immediately leaves its source null while the batcher
+     *  may still hold the texture in the current frame's element list. Retirement
+     *  frees the GPU memory on the next paint instead — same budget, no crash. */
+    private retire(texture: Texture) {
+        const source = texture.source;
+        if (source) {
+            // Pixi nulls the style on source destroy; any late bind of a batched
+            // sprite then crashes the whole pipeline on style.addressModeU.
+            const original=source.destroy.bind(source);
+            source.destroy=()=>{original();try{source.style=new TextureStyle();}catch{/* A fully dead source is never rebound. */}};
+            this.retired.push(source);
+        }
+        texture.destroy();
+    }
     private releaseIcon(key: string) {
         const known = this.icons.get(key);
         if (known && !--known.refs) {
-            known.texture.destroy(true);
+            this.retire(known.texture);
             this.icons.delete(key);
             this.textureBytes -= known.bytes;
         }
@@ -221,7 +243,8 @@ export class GpuMapRenderer {
         const key = [n.icon, n.ink, n.iconSize].join('|');
         let known = this.icons.get(key);
         if (!known) {
-            const source = iconSprite(n.icon, n.ink, n.iconSize), texture = Texture.from(source);
+            const source = iconSprite(n.icon, n.ink, n.iconSize);
+            const texture = new Texture({source: new TextureSource({resource: source})});
             known = { texture, refs: 0, bytes: source.width * source.height * 4 };
             this.icons.set(key, known);
             this.textureBytes += known.bytes;
@@ -238,7 +261,7 @@ export class GpuMapRenderer {
         this.releaseBody(node.bodyKey);
         this.releaseIcon(node.iconKey);
         for (const label of node.labels)
-            label.texture.destroy(true);
+            this.retire(label.texture);
     }
     private body(entry: NodeEntry, n: GpuNode) {
         const signature = [n.radius, n.shape, n.style, n.color, n.ink, n.strokeWidth, n.pinned, n.pinColor, n.pinFill].join('|');
@@ -293,13 +316,13 @@ export class GpuMapRenderer {
                 ctx.textAlign = 'center';
                 ctx.fillStyle = label.color;
                 ctx.fillText(label.text, width / 2, 0);
-                const texture = Texture.from(canvas), bytes = canvas.width * canvas.height * 4;
+                const texture = new Texture({source: new TextureSource({resource: canvas})}), bytes = canvas.width * canvas.height * 4;
                 if (cached) {
                     this.textureBytes -= cached.bytes;
                     const old = cached.texture;
                     cached.sprite.texture = texture;
                     cached.texture = texture;
-                    old.destroy(true);
+                    this.retire(old);
                     cached.bytes = bytes;
                     cached.signature = signature;
                 }
@@ -332,7 +355,7 @@ export class GpuMapRenderer {
             }
         return changed;
     }
-    private prepareDot() { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64; const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(32, 32, 32, 0, Math.PI * 2); ctx.fill(); this.dotTexture = Texture.from(canvas); this.textureBytes += 64 * 64 * 4; this.built(); }
+    private prepareDot() { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64; const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(32, 32, 32, 0, Math.PI * 2); ctx.fill(); this.dotTexture = new Texture({source: new TextureSource({resource: canvas})}); this.textureBytes += 64 * 64 * 4; this.built(); }
     private drawDots(dots: GpuDot[], frame: number) {
         let changed = false;
         const seen = new Set<string>();
@@ -407,7 +430,7 @@ export class GpuMapRenderer {
                 this.textureBytes -= entry.labels.reduce((sum, label) => sum + label.bytes, 0);
                 entry.labelLayer.destroy({ children: true });
                 for (const label of entry.labels)
-                    label.texture.destroy(true);
+                    this.retire(label.texture);
                 this.edgeLabelCache.delete(id);
             }
         return changed;
@@ -415,6 +438,13 @@ export class GpuMapRenderer {
     paint(width: number, height: number, resolution: number, camera: Camera, edges: GpuEdge[], nodes: GpuNode[], dots: GpuDot[] = [], edgeLabels: GpuEdgeLabel[] = []) {
         if (this.lost)
             return false;
+        // Sources retired last frame are safe to free now: the previous render's
+        // batch no longer references them.
+        if (this.retired.length) {
+            for (const source of this.retired)
+                source.destroy();
+            this.retired.length = 0;
+        }
         let changed = width !== this.width || height !== this.height || resolution !== this.resolution || this.world.x !== width / 2 + camera.x || this.world.y !== height / 2 + camera.y || this.world.scale.x !== camera.zoom;
         if (width !== this.width || height !== this.height || resolution !== this.resolution) {
             this.renderer.resize(width, height, resolution);
@@ -511,6 +541,7 @@ export class GpuMapRenderer {
             for (const label of entry.labels)
                 label.texture.destroy(true);
         }
+        this.retired.length = 0;
         this.edgeLabelCache.clear();
         this.dotsCache.clear();
         this.curves.destroy();

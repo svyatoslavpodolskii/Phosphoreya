@@ -19,6 +19,19 @@ export const WikiReference=Node.create({
  renderMarkdown(node){return String(node.attrs?.raw||'');},
 });
 
+/** An attachment lives where the caret was, not in a footer list. The Markdown
+ *  source keeps a plain reference; note metadata stays the source of truth. */
+export const MediaReference=Node.create({
+ name:'mediaReference',group:'inline',inline:true,atom:true,
+ addAttributes(){return{id:{default:''},name:{default:''},mime:{default:''}};},
+ parseHTML(){return[{tag:'span[data-media-reference]'}];},
+ renderHTML({node,HTMLAttributes}){return['span',mergeAttributes(HTMLAttributes,{'data-media-reference':node.attrs.id,'data-media-mime':node.attrs.mime,role:'img','aria-label':node.attrs.name}),node.attrs.name];},
+ markdownTokenizer:{name:'mediaReference',level:'inline',start:src=>src.indexOf('![media:'),tokenize(src){const m=/^!\[media:([^\]]+)\]\(phosphoreya-asset:([0-9a-f-]{36})\)/.exec(src);if(m)return{type:'mediaReference',raw:m[0],name:m[1],id:m[2],mime:''};}},
+ markdownTokenName:'mediaReference',
+ parseMarkdown(token){return{type:'mediaReference',attrs:{id:token.id,name:token.name,mime:token.mime}};},
+ renderMarkdown(node){return `![media:${node.attrs?.name||''}](phosphoreya-asset:${node.attrs?.id||''})`;},
+});
+
 /** Unknown syntax is visible and removable, but its source never passes through HTML. */
 export const SourceBlock=Node.create({
  name:'sourceBlock',group:'block',atom:true,selectable:true,
@@ -29,14 +42,17 @@ export const SourceBlock=Node.create({
  addNodeView(){return({node,editor,getPos})=>{
   const dom=document.createElement('div');dom.dataset.sourceBlock='';dom.contentEditable='false';
   const label=document.createElement('button');label.type='button';label.textContent='Редактировать Markdown';
-  const pre=document.createElement('pre'),input=document.createElement('textarea');input.setAttribute('aria-label','Исходник блока');input.dataset.escapeLocal='';input.spellcheck=false;dom.append(label,pre,input);let current=node,alive=true;
+  const pre=document.createElement('pre'),input=document.createElement('textarea');input.setAttribute('aria-label','Исходник блока');input.dataset.escapeLocal='';input.spellcheck=false;dom.append(label,pre,input);let current=node,alive=true;let debounce:ReturnType<typeof setTimeout>|undefined;
   function position(){const pos=getPos();return typeof pos==='number'&&editor.state.doc.nodeAt(pos)?.type.name==='sourceBlock'?pos:null;}
   function attrs(patch:Record<string,unknown>){const pos=position();if(pos!==null)editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...current.attrs,...patch}));}
   function finish(){if(!alive||!editor.isEditable||!current.attrs.editing)return;const pos=position();if(pos===null)return;const raw=String(current.attrs.raw),manager=editor.markdown;if(manager){const session=new MarkdownSession(),parsed=session.load(raw,manager).content||[];if(parsed.length===1&&parsed[0].type!=='sourceBlock'){const replacement=editor.schema.nodeFromJSON({...parsed[0],attrs:{...parsed[0].attrs,sourceKey:current.attrs.sourceKey}});editor.view.dispatch(editor.state.tr.replaceWith(pos,pos+current.nodeSize,replacement));return;}}attrs({editing:false});}
   function paint(){pre.textContent=String(current.attrs.raw);pre.hidden=Boolean(current.attrs.editing);label.hidden=Boolean(current.attrs.editing);input.hidden=!current.attrs.editing;if(input.value!==current.attrs.raw)input.value=String(current.attrs.raw);if(current.attrs.editing)queueMicrotask(()=>{if(alive&&current.attrs.editing&&document.activeElement!==input){input.focus();const cursor=Math.min(input.value.length,Number(current.attrs.cursor)||0);input.setSelectionRange(cursor,cursor);}});}
-  label.onclick=()=>{if(editor.isEditable)attrs({editing:true,cursor:0});};input.onbeforeinput=e=>{if(!editor.isEditable)e.preventDefault();};input.oninput=()=>{if(!editor.isEditable){input.value=String(current.attrs.raw);return;}input.style.height='auto';input.style.height=`${Math.min(440,Math.max(60,input.scrollHeight))}px`;attrs({raw:input.value});};input.onblur=finish;
+  label.onclick=()=>{if(editor.isEditable)attrs({editing:true,cursor:0});};input.onbeforeinput=e=>{if(!editor.isEditable)e.preventDefault();};input.oninput=()=>{if(!editor.isEditable){input.value=String(current.attrs.raw);return;}input.style.height='auto';input.style.height=`${Math.min(440,Math.max(60,input.scrollHeight))}px`;attrs({raw:input.value});const text=input.value;
+   // Erasing the Markdown marker returns the block to the visual editor at once,
+   // the way a plain text paragraph re-renders after its syntax is gone.
+   if(!/^(\s{0,3}(#{1,6}\s|>\s?|[-*+]\s|\d+[.)]\s|- \[[ x] \])|\s*```|\|)/.test(text)&&!/\n\s*\n/.test(text)){queueMicrotask(()=>finish());}else{clearTimeout(debounce);debounce=setTimeout(()=>finish(),900);}};input.onblur=finish;
   input.onkeydown=e=>{e.stopPropagation();if(!editor.isEditable){if(e.key==='Backspace'||e.key==='Delete')e.preventDefault();return;}if(e.key==='Escape'){e.preventDefault();finish();editor.view.focus();}else if(e.key==='Backspace'&&!input.value){e.preventDefault();const pos=position();if(pos!==null){alive=false;editor.commands.deleteRange({from:pos,to:pos+current.nodeSize});editor.view.focus();}}};paint();
-  return{dom,stopEvent:e=>e.target instanceof Element&&Boolean(e.target.closest('textarea,button')),ignoreMutation:()=>true,update(next){if(next.type!==current.type)return false;current=next;paint();return true;},destroy(){alive=false;}};
+  return{dom,stopEvent:e=>e.target instanceof Element&&Boolean(e.target.closest('textarea,button')),ignoreMutation:()=>true,update(next){if(next.type!==current.type)return false;current=next;paint();return true;},destroy(){alive=false;clearTimeout(debounce);}};
  };},
 });
 
@@ -45,7 +61,7 @@ const SourceIdentity=Extension.create({
  addGlobalAttributes(){return[{types:['paragraph','heading','bulletList','orderedList','taskList','blockquote','codeBlock','horizontalRule','table','image','sourceBlock'],attributes:{sourceKey:{default:null,rendered:false}}}];},
 });
 
-export function richExtensions(){return[StarterKit.configure({underline:false,trailingNode:false,link:{openOnClick:false,autolink:false,linkOnPaste:false}}),TableKit,Image.configure({allowBase64:false}),TaskList,NoteTaskItem,WikiReference,SourceBlock,SourceIdentity,Markdown];}
+export function richExtensions(){return[StarterKit.configure({underline:false,trailingNode:false,link:{openOnClick:false,autolink:false,linkOnPaste:false}}),TableKit,Image.configure({allowBase64:false}),TaskList,NoteTaskItem,WikiReference,MediaReference,SourceBlock,SourceIdentity,Markdown];}
 
 const lexer=new Marked();
 const supported=new Set(['space','paragraph','text','heading','blockquote','list','list_item','checkbox','code','hr','strong','em','codespan','br','del','link','escape','table','image']);

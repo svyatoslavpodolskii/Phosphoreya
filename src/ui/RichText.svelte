@@ -42,6 +42,8 @@
 
  }
  export function insertWiki(raw:string,target:string,label:string){editor?.view.focus();editor?.chain().focus().insertContent({type:'wikiReference',attrs:{raw,target,label}}).run();}
+ /** An attachment lands exactly where the caret sits, in the paragraph being edited. */
+ export function insertMedia(id:string,name:string,mime:string){if(!editor)return;editor.view.focus();editor.chain().focus().insertContent({type:'mediaReference',attrs:{id,name,mime}}).run();}
  function wiki(e:MouseEvent|KeyboardEvent){if(e instanceof KeyboardEvent&&e.key!=='Enter')return;const target=(e.target as Element).closest<HTMLElement>('[data-wiki-reference]');if(target){e.preventDefault();onwiki(target.dataset.wikiReference!);}}
  onMount(()=>{
   editor=new Editor({element:host,extensions:richExtensions(),content:{type:'doc',content:[{type:'paragraph'}]},editorProps:{
