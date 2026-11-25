@@ -277,7 +277,8 @@
  function aim(p:Point,touch=false){const id=pickTarget(targets(),p,candidate,touch).id;if(id!==candidate){candidate=id;hover=id;onhover(id);}}
  /** Focus helps the camera only when the target is genuinely poorly placed. */
  function reveal(point:Point,desired:number){const next=revealCamera(camera,point,{width,height},desired);if(next)rig.retarget(next);}
- function down(e:PointerEvent){if(paused||!rendererSettled||data.atoms.length&&!painted.length||e.button!==0)return;frameStructure=false;connectFrom='';activeLink='';gestureActive=true;if(cameraMoving)commitCamera();rig.halt();e.preventDefault();canvas.focus();adopt();controller?.setInteracting(true);gestureBounds=canvas.getBoundingClientRect();const p=position(e);panSample={...p,time:performance.now()};panVelocity={x:0,y:0};pointers.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
+ function down(e:PointerEvent){if(paused||!rendererSettled||data.atoms.length&&!painted.length||e.button!==0)return;
+ edgeCurves.freeze(true);frameStructure=false;connectFrom='';activeLink='';gestureActive=true;if(cameraMoving)commitCamera();rig.halt();e.preventDefault();canvas.focus();adopt();controller?.setInteracting(true);gestureBounds=canvas.getBoundingClientRect();const p=position(e);panSample={...p,time:performance.now()};panVelocity={x:0,y:0};pointers.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
   if(pointers.size===2){stateTray=false;stateHover='';reportFolderDrag();touchFeedback=null;clearProposal();clearTimeout(longTimer);lasso=null;lassoing=false;holdReady=false;start=null;moving=null;pendingDrag=false;dragging=false;controller?.cancelDrag();fromPinch=true;const [a,b]=[...pointers.values()];pinch=Math.hypot(a.x-b.x,a.y-b.y);const screen={x:(a.x+b.x)/2,y:(a.y+b.y)/2};pinchStart={distance:pinch,zoom:camera.zoom};focal=screen;rig.pinchTo(screen,camera.zoom);schedule();return;}
   if(pointers.size>2)return;
   if(e.shiftKey&&providers.hasTool('lasso')){onselect('');lassoSelection=[];lassoing=true;lasso=[p];start=null;schedule();return;}
@@ -323,6 +324,7 @@
   // A drag or a pinch ends: hand the camera back to the rig at its rest, then let
   // the spring carry whatever momentum is left over into a short settle.
   const gesture=rig.gesturing;
+ edgeCurves.release();
    if(gesture&&pinchStart){pinchStart=null;pinch=0;rig.endPinch();
     // A two-finger gesture owns the remaining contact until every finger lifts.
     // A fresh contact can then pan; staggered pointerup cannot add sideways motion.
@@ -343,7 +345,7 @@
      else{if(!holdReady&&performance.now()-lastEmptyTap.time<320&&Math.hypot(p.x-lastEmptyTap.x,p.y-lastEmptyTap.y)<30){lastEmptyTap.time=-Infinity;const now=performance.now(),elapsed=now-lastTapZoomAt,current=elapsed<1200?Math.max(camera.zoom,lastTapZoom):camera.zoom,next=tapZoom(current,fitted().zoom,MAX_ZOOM,elapsed);if(next===null)frameMap();else{lastTapZoomAt=now;lastTapZoom=next;rig.zoomTo(p,next);schedule();}start=null;holdReady=false;controller?.setInteracting(false);return;}lastEmptyTap={...p,time:performance.now()};candidate='';hover='';onselect('');activeLink=holdReady?'':pickLink([...(model.expanded?.links||[]),...model.links,...(providers.hasTool('ambient-lens')?data.links:[])].filter(l=>linkIds.has(l.id)),painted.filter(n=>n.opacity>.3),camera,{width,height},p,edgeCurves);if(holdReady){suppressReleaseClick=true;oncreate(start.worldX??world(start).x,start.worldY??world(start).y);}else lassoSelection=[];}}
     else if(!start.node&&!reduced&&performance.now()-panSample.time<90){rig.endPinch();rig.release(panVelocity);}}
   if(rig.gesturing)rig.endPinch();start=null;holdReady=false;moving=null;pendingDrag=false;dragging=false;candidate='';hover='';fromPinch=false;focal=undefined;controller?.setInteracting(false);schedule();}
- function cancel(){gestureBounds=null;stateTray=false;stateHover='';reportFolderDrag();clearTimeout(feedbackTimer);touchFeedback=null;clearProposal();rig.halt();clearTimeout(longTimer);holdReady=false;holdStarted=Infinity;pinchStart=null;fromPinch=false;gestureActive=false;lassoing=false;lasso=null;pointers.clear();controller?.setInteracting(false);start=null;moving=null;pendingDrag=false;dragging=false;pinch=0;controller?.cancelDrag();schedule();}
+ function cancel(){edgeCurves.release();gestureBounds=null;stateTray=false;stateHover='';reportFolderDrag();clearTimeout(feedbackTimer);touchFeedback=null;clearProposal();rig.halt();clearTimeout(longTimer);holdReady=false;holdStarted=Infinity;pinchStart=null;fromPinch=false;gestureActive=false;lassoing=false;lasso=null;pointers.clear();controller?.setInteracting(false);start=null;moving=null;pendingDrag=false;dragging=false;pinch=0;controller?.cancelDrag();schedule();}
  function leave(){candidate='';hover='';schedule();}
  onMount(()=>cameraMetrics.observe());
  onMount(()=>{let disposed=false;void import('./gpu-renderer').then(m=>m.GpuMapRenderer.create(schedule)).then(value=>{if(disposed)value.destroy();else{pendingGpu=value;schedule();}}).catch(error=>{if(canvas)canvas.dataset.rendererFailure=error instanceof Error?error.name+': '+error.message.slice(0,180):'GPU initialization failure';console.warn('WebGL unavailable; using Canvas',error);}).finally(()=>{gpuStarting=false;rendererSettled=true;if(!disposed)schedule();});return()=>{disposed=true;gpu?.destroy();pendingGpu?.destroy();pendingGpu=null;};});
@@ -363,7 +365,7 @@
  {@const a=screenPoint(proposal.from)}{@const b=screenPoint(proposalTarget)}
  <div class="drag-link-proposal" data-ready={proposal.ready} data-target={proposal.target}>
   <svg width={width} height={height} aria-hidden="true"><path d={`M ${a.x} ${a.y} Q ${(a.x+b.x)/2-12} ${(a.y+b.y)/2-20} ${b.x} ${b.y}`}/><circle cx={b.x} cy={b.y} r={proposalTarget.radius*camera.zoom+8}/></svg>
-  <div class="drag-link-hint" role="status" style:left={`${Math.max(90,Math.min(width-90,b.x))}px`} style:top={`${Math.max(60,b.y-proposalTarget.radius*camera.zoom-48)}px`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/></svg><span>{proposal.duplicate?(proposal.ready?'Отпустите, чтобы убрать связь':'Задержите, чтобы убрать связь'):proposal.ready?'Отпустите для связи':'Задержите для связи'}</span></div>
+  <div class="drag-link-hint" role="status" style:left={`${Math.max(90,Math.min(width-90,b.x))}px`} style:top={`${Math.max(60,b.y-proposalTarget.radius*camera.zoom-48)}px`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/></svg><span>{proposal.duplicate ? (proposal.ready ? 'Отпустите, чтобы убрать связь' : 'Задержите, чтобы убрать связь') : (proposal.ready ? 'Отпустите для связи' : 'Задержите для связи')}</span></div>
  </div>
 {/if}
 <RelationshipLayer curves={edgeCurves} bind:this={relationships} {data} nodes={painted} {camera} {width} {height} selected={connectFrom} paused={paused||gestureActive} bind:activeLink bind:interacting={linkInteracting} onchange={onlinkchange}/>
