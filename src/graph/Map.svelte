@@ -143,7 +143,7 @@
   frameReason=rig.moving?cameraDecision():'rest';
   if(rig.moving&&frameReason==='retained'){
    try{if(gpu!.moveCamera(rig.value)){lastCameraOnly=true;hitCache=null;canvas.dataset.cameraFrames=String(Number(canvas.dataset.cameraFrames||0)+1);if(rig.needsFrame)schedule();return;}}
-   catch(error){gpuFailed=true;console.warn('GPU camera unavailable; using Canvas',error);}
+   catch(error){gpuFailed=true;canvas.dataset.rendererFailure=error instanceof Error?error.name+': '+error.message.slice(0,180):'GPU camera failure';console.warn('GPU camera unavailable; using Canvas',error);}
   }
   paintScene(now,dt,rig.value,width,height);
   rememberScene();
@@ -160,7 +160,7 @@
   const ctx=drawingContext??(drawingContext=canvas.getContext('2d')!);const palette=readPalette();/* Bound software framebuffer work by pixels, not atom count. A dense phone
    * otherwise uploads a multi-megapixel canvas for twenty tiny shapes every frame.
    * This resolution stays fixed throughout gestures; WebGL retains full density. */
-  const dpr=gpu?.available&&!gpuFailed?Math.min(devicePixelRatio,2):Math.max(1,Math.min(devicePixelRatio,2,Math.sqrt(500000/(width*height))));if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
+  const dpr=gpu?.available&&!gpuFailed?Math.min(devicePixelRatio,2):Math.min(devicePixelRatio,2);if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
   sceneRadius=painted.reduce((max,n)=>Math.max(max,n.radius*1.5),0);
   const nodes=displayed;const visible=(n:{x:number;y:number})=>{const x=width/2+camera.x+n.x*camera.zoom,y=height/2+camera.y+n.y*camera.zoom;const pad=sceneRadius*camera.zoom+100;return x>-(width*.35+pad)&&x<width*1.35+pad&&y>-(height*.35+pad)&&y<height*1.35+pad;};
   const ordered=priorityNodes.filter(visible),attention=visualAttention(ordered,camera,{width,height},selected,now-recentAt<3000?recent:'',focal);visualFocus=attention.focus;for(const node of ordered)node.attention=attention.scores.get(node.id)??.4;
@@ -221,7 +221,7 @@
   if(!raster){
    const half=Math.ceil(n.radius*1.25+24),soft=n.id===selected||n.id===hover||moving?.id===n.id||softIds.has(n.id);
    const key=['body',n.radius,n.shape,n.style,n.color,n.icon,Boolean(n.members),n.state,muted,lens,soft,palette.strong,inBranch.has(n.id),Boolean(n.pinned&&prefs.pinning&&camera.zoom>.38),palette.background,palette.accent,palette.text,palette.muted].join('|');
-   const image=rasterCache.get(key,half*2,half*2,p=>{p.translate(half-n.x,half-n.y);paintNode(p,true);});ctx.globalAlpha=opacity;ctx.drawImage(image,-half,-half,half*2,half*2);
+   const image=rasterCache.get(key,half*2,half*2,p=>{p.translate(half-n.x,half-n.y);paintNode(p,true);},camera.zoom*dpr/2);ctx.globalAlpha=opacity;ctx.drawImage(image,-half,-half,half*2,half*2);
   }else{
   const color=muted?palette.muted:n.color==='#b4ecc1'?palette.accent:n.color;const ink=inkFor(color,palette.background);
   // The outline and its highlight are rebuilt per frame otherwise: a new Path2D,
@@ -260,7 +260,7 @@
    const color=muted?palette.muted:n.color==='#b4ecc1'?palette.accent:n.color,ink=inkFor(color,palette.background),mustHave=n.id===selected||n.id===hover||moving?.id===n.id;
    gpuNodes.push({id:n.id,x:n.x,y:n.y,radius:n.radius,shape:n.shape,style:n.style,color,ink,strokeWidth:palette.strong?2.6:inBranch.has(n.id)&&n.id!==selected?2.1:1.35,soft:mustHave||softIds.has(n.id),icon:n.icon,iconSize:n.members?24:22,iconVisible:mustHave||iconIds.has(n.id)&&iconLegible(n.radius,camera.zoom),iconEligible:mustHave||iconIds.has(n.id),forceIcon:mustHave,pinned:Boolean(n.pinned&&prefs.pinning),pinVisible:Boolean(n.pinned&&prefs.pinning&&camera.zoom>.38),pinColor:palette.text,pinFill:palette.background,bodyAlpha:stateAlpha,alpha:opacity,labels,rings});
   }else paintNode(ctx);
-  }if(worldOverlay)ctx.restore();if(accelerated){try{if(!gpu!.paint(width,height,dpr,camera,gpuEdges,gpuNodes,gpuDots,gpuEdgeLabels))schedule();}catch(error){gpuFailed=true;console.warn('GPU renderer unavailable; using Canvas',error);schedule();}}
+  }if(worldOverlay)ctx.restore();if(accelerated){try{if(!gpu!.paint(width,height,dpr,camera,gpuEdges,gpuNodes,gpuDots,gpuEdgeLabels))schedule();}catch(error){gpuFailed=true;canvas.dataset.rendererFailure=error instanceof Error?error.name+': '+error.message.slice(0,180):'GPU paint failure';console.warn('GPU renderer unavailable; using Canvas',error);schedule();}}
   if(lasso?.length){ctx.save();ctx.beginPath();ctx.moveTo(lasso[0].x,lasso[0].y);for(const p of lasso.slice(1))ctx.lineTo(p.x,p.y);ctx.closePath();ctx.fillStyle=palette.accent+'18';ctx.strokeStyle=palette.text;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.fill();ctx.stroke();ctx.restore();}if(!pointers.size&&!rig.moving&&!model.arranging){previews=contentPreviews(ambient?painted.filter(n=>lensFocus(n.state,lens)):painted,camera,width,height,selected,previewHeights,previews);previewCamera={...camera};}
   if(!firstMap&&(!data.atoms.length||painted.length)){firstMap=true;performance.mark('phosphora:first-map');canvas.dataset.startupMs=String(Math.round(performance.now()));}
   // The camera is recorded once it comes to rest, independently of any level of
@@ -346,7 +346,7 @@
  function cancel(){gestureBounds=null;stateTray=false;stateHover='';reportFolderDrag();clearTimeout(feedbackTimer);touchFeedback=null;clearProposal();rig.halt();clearTimeout(longTimer);holdReady=false;holdStarted=Infinity;pinchStart=null;fromPinch=false;gestureActive=false;lassoing=false;lasso=null;pointers.clear();controller?.setInteracting(false);start=null;moving=null;pendingDrag=false;dragging=false;pinch=0;controller?.cancelDrag();schedule();}
  function leave(){candidate='';hover='';schedule();}
  onMount(()=>cameraMetrics.observe());
- onMount(()=>{let disposed=false;void import('./gpu-renderer').then(m=>m.GpuMapRenderer.create(schedule)).then(value=>{if(disposed)value.destroy();else{pendingGpu=value;schedule();}}).catch(error=>{console.warn('WebGL unavailable; using Canvas',error);}).finally(()=>{gpuStarting=false;rendererSettled=true;if(!disposed)schedule();});return()=>{disposed=true;gpu?.destroy();pendingGpu?.destroy();pendingGpu=null;};});
+ onMount(()=>{let disposed=false;void import('./gpu-renderer').then(m=>m.GpuMapRenderer.create(schedule)).then(value=>{if(disposed)value.destroy();else{pendingGpu=value;schedule();}}).catch(error=>{if(canvas)canvas.dataset.rendererFailure=error instanceof Error?error.name+': '+error.message.slice(0,180):'GPU initialization failure';console.warn('WebGL unavailable; using Canvas',error);}).finally(()=>{gpuStarting=false;rendererSettled=true;if(!disposed)schedule();});return()=>{disposed=true;gpu?.destroy();pendingGpu?.destroy();pendingGpu=null;};});
  onMount(()=>{window.addEventListener('phosphora-theme-change',invalidatePalette);const resetClick=()=>{suppressReleaseClick=false;if(cameraMoving)commitCamera();rig.halt();};const releaseClick=(e:MouseEvent)=>{if(suppressReleaseClick){suppressReleaseClick=false;e.preventDefault();e.stopImmediatePropagation();}};window.addEventListener('pointerdown',resetClick,true);window.addEventListener('click',releaseClick,true);adopt();onviewport({width,height});rig.set(camera);controller=new GraphController(providers,m=>model=m,onpositions,onerror);const media=matchMedia('(prefers-reduced-motion: reduce)');reduced=media.matches;rig.setReduced(reduced);const motion=()=>{reduced=media.matches;rig.setReduced(reduced);};media.addEventListener('change',motion);const visibility=()=>{controller?.view($state.snapshot(camera),width,height,lens,selected,paused,reduced);if(document.hidden){if(cameraMoving){commitCamera();oncamera();}controller?.flush();}else schedule();};document.addEventListener('visibilitychange',visibility);const observer=new ResizeObserver(([entry])=>{gestureBounds=null;width=entry.contentRect.width;height=entry.contentRect.height;onviewport({width,height});adopt();schedule();});observer.observe(canvas);
   const wheel=(e:WheelEvent)=>{e.preventDefault();adopt();const r=canvas.getBoundingClientRect();rig.zoomAt({x:e.clientX-r.left,y:e.clientY-r.top},wheelZoomFactor(e,height));schedule();};canvas.addEventListener('wheel',wheel,{passive:false});
   // Safari reports trackpad pinch as gesture events instead of a ctrl-modified wheel.
