@@ -100,7 +100,7 @@
  {#if quickLinks}<div class="quick-link-picker"><input bind:this={quickInput} aria-label="Быстрая связь" placeholder="Найти заметку…" bind:value={quickQuery}/>{#each data.atoms.filter(a=>a.id!==draft.id&&normalize(a.title+' '+a.aliases.join(' ')).includes(normalize(quickQuery))).slice(0,8) as atom}<button type="button" onclick={()=>insertLink(atom)}>{atom.title}</button>{/each}</div>{/if}
  {#if !raw}<RichText bind:this={visual} value={draft.content||''} onchange={content=>draft.content=content} onwiki={openWiki} disabled={saving||confirmDelete}/>{:else}<textarea bind:this={textArea} oninput={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onselect={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onkeyup={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} onclick={()=>selection={start:textArea.selectionStart,end:textArea.selectionEnd}} class="note-content" aria-label="Текст" placeholder="Пишите свободно…" bind:value={draft.content}></textarea>{/if}
 
- {#if core}<NoteMedia bind:this={mediaPanel} {core} {mediaEnabled} {audioEnabled} {transcriptionEnabled} value={attachments(draft as Atom)} onchange={value=>draft.properties={...draft.properties,[ATTACHMENTS]:value}} onpersist={persistForMedia}/>{/if}
+ <div class="note-body-media">{#if core}<NoteMedia bind:this={mediaPanel} {core} {mediaEnabled} {audioEnabled} {transcriptionEnabled} value={attachments(draft as Atom)} onchange={value=>draft.properties={...draft.properties,[ATTACHMENTS]:value}} onpersist={persistForMedia}/>{/if}</div>
  </div>
  {#if confirmDelete}<div class="confirm"><p>Удалить атом и его связи? Локальная копия останется в настройках.</p><button type="button" disabled={saving} onclick={async()=>{saving=true;try{writer.cancel();await writer.flush();await ondelete(draft.id!);await storage.transaction([{kind:'setting',key:EDITOR_CHECKPOINT,value:null}]);}catch(e){error=(e as Error).message;}finally{saving=false;}}}>Удалить</button><button type="button" onclick={()=>confirmDelete=false}>Отмена</button></div>{/if}
  <DraftStatus phase={checkpointState} changedAt={checkpointChangedAt}/>
@@ -108,27 +108,25 @@
 </div>
 <style>
  .editor-shortcuts{display:flex;align-items:center;margin-right:auto}.editor-shortcuts svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
- .note-editor .note-heading{padding:6px 0 10px;border-bottom:1px solid var(--theme-border);margin-bottom:0}.note-editor{gap:10px}.note-editor .atom-title{padding:6px 0;font-size:26px}.note-fields{gap:8px}
+ .note-editor .note-heading{padding:10px 0 14px;margin:0;border-bottom:1px solid color-mix(in srgb,var(--theme-border),transparent 20%);background:transparent}
+ .note-editor{gap:10px}.note-editor .atom-title{padding:6px 0;font-size:26px}.note-fields{gap:8px}
  .note-editor .note-toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}.editor-modes{grid-column:1/-1;margin:2px 0 0}
  .note-share{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--theme-border);border-radius:16px}.note-share small{letter-spacing:0}.note-share>div{display:flex;gap:6px;flex-wrap:wrap}.note-options{padding:12px;max-height:45dvh;overflow:auto;border:1px solid var(--theme-border);border-radius:16px;background:var(--theme-surfaceAlt)}.editor-appearance{padding:8px}
- @media(max-width:650px){.note-editor .note-heading{padding-top:2px}.note-toolbar .editor-modes{margin:2px 0 0}.note-editor .atom-title{font-size:25px}.note-editor .note-content{height:clamp(220px,42dvh,500px)}}
+ @media(max-width:650px){.note-editor .note-heading{padding:10px 0 12px}.note-editor .atom-title{font-size:25px}.note-editor .note-content{height:clamp(220px,42dvh,500px)}}
  .note-heading .icon-button{width:36px;min-width:36px;height:40px;min-height:40px;padding:6px;border:0;background:transparent}.note-heading .button-wrap{gap:2px;flex-wrap:nowrap}.note-heading .note-save{padding:8px 12px;min-height:40px}.note-heading .icon-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6}.editor-shortcuts{gap:0}.importance-control{display:grid;gap:8px;margin-bottom:14px}.importance-control>span{font-size:12px;color:var(--theme-muted)}.importance-control>div{display:flex;gap:4px;padding:3px;background:var(--theme-surfaceAlt);border-radius:13px}.importance-control button{flex:1;border:0;border-radius:10px;background:transparent;padding:7px;font-size:12px;min-height:38px}.importance-control button[aria-pressed=true]{background:var(--theme-text);color:var(--theme-background)}.options-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.options-heading strong{font-size:14px}.options-heading button{padding:4px;min-height:32px}.note-options .links-section{margin:0}.note-options .note-metadata{padding:10px 0 0;gap:8px}.note-options .inline-suggestions{gap:6px}.note-options .link-chip{padding:8px;margin:4px 0}.note-editor .note-options{padding:12px;border-radius:18px;max-height:42dvh}
-
- /* These surfaces belong to the editor, independent of global form resets. */
  .note-editor .note-fields{gap:12px;min-width:0}
  .note-editor .note-fields>.atom-title{padding:12px 14px;border:1px solid color-mix(in srgb,var(--theme-border),transparent 25%);border-radius:16px;background:color-mix(in srgb,var(--theme-surfaceAlt),transparent 35%);line-height:1.3}
  .note-editor .note-fields>:global(.note-content){padding:16px;border:1px solid color-mix(in srgb,var(--theme-border),transparent 25%);border-radius:18px;background:color-mix(in srgb,var(--theme-surfaceAlt),transparent 30%);scrollbar-width:thin;scrollbar-color:var(--theme-border) transparent;scrollbar-gutter:stable;overscroll-behavior:contain;min-width:0;resize:none}
  .note-editor .note-fields>:global(.note-content):focus-within{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-accent),transparent 82%);border-color:color-mix(in srgb,var(--theme-accent),transparent 55%)}
  .note-editor .note-fields>.writing-tools{border:1px solid color-mix(in srgb,var(--theme-border),transparent 35%);border-radius:16px;background:var(--theme-surfaceAlt);padding:5px;gap:2px;scrollbar-width:none;overscroll-behavior-x:contain}
- .note-editor .writing-tools button{display:grid;place-items:center;min-height:38px;min-width:36px;padding:7px;border-radius:11px;color:var(--theme-text);flex-shrink:0}
- .note-editor .writing-tools button:active,.note-heading .icon-button:active{background:color-mix(in srgb,var(--theme-accent),transparent 86%)}
- .writing-tools svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
- .note-heading .icon-button{border-radius:12px}
- .note-editor .note-heading{gap:4px;padding:2px 0 12px}
- .note-editor .note-toolbar{gap:8px}
- .editor-modes{padding:4px;border:1px solid color-mix(in srgb,var(--theme-border),transparent 40%);border-radius:16px}
- .editor-modes button{min-height:38px;border-radius:12px}
- @media(hover:hover){.note-editor .writing-tools button:hover,.note-heading .icon-button:hover{background:color-mix(in srgb,var(--theme-text),transparent 93%)}}
- @media(max-width:650px){.note-editor .note-fields>:global(.note-content){padding:14px}.note-editor .note-fields>.atom-title{font-size:24px;padding:11px 13px}.note-editor .note-fields{gap:10px}.note-heading .icon-button{width:34px;min-width:34px}.note-heading .note-save{padding-inline:11px}}
+ .note-editor .note-fields>.note-body-media{margin:0;padding:0;background:transparent;border:0}
+ .note-editor .note-fields>.note-body-media:empty{display:none}
+ .note-editor .note-fields>.note-body-media :global(.note-media){display:flex;flex-direction:column;gap:10px}
+ .note-editor .note-fields>.note-body-media :global(.attachment-card){margin:0;border-radius:16px;background:color-mix(in srgb,var(--theme-surfaceAlt),transparent 20%);padding:10px}
+ .note-editor .note-fields>.note-body-media :global(.attachment-card:first-child){margin-top:0}
+ .note-editor .note-fields>.note-body-media :global(.audio-player){min-height:52px;padding:4px 2px}
+ .note-editor .note-fields>.note-body-media :global(.recording-status){align-self:flex-start}
+ .note-editor .note-heading{background:transparent;border-bottom:1px solid color-mix(in srgb,var(--theme-border),transparent 20%);padding:10px 0 14px;margin:0}
+ @media(max-width:650px){.note-editor .note-heading{padding:10px 0 12px}.note-editor .note-fields>.note-body-media :global(.attachment-card){padding:8px;border-radius:14px}}
  .link-count{font-size:11px;opacity:.6;margin-left:6px}.delete-note{display:flex;align-items:center;gap:8px;color:color-mix(in srgb,var(--theme-text),#d66b6b 70%);border:0;background:transparent;padding:8px 0;font-size:13px}.delete-note svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5}.note-options .inline-suggestions{display:flex;flex-wrap:wrap}.note-options .inline-suggestions>small{flex-basis:100%;font-size:11px}.note-options .suggestion{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>

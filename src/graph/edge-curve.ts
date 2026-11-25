@@ -13,8 +13,12 @@ type End={id?:string;x:number;y:number;radius:number};
 export class EdgeCurves{
  private revision=0;private positions=new Map<string,End>();private cells=new Map<string,End[]>();
  private entries=new WeakMap<object,{revision:number;side:number;ax:number;ay:number;ar:number;bx:number;by:number;br:number;curve:ReturnType<typeof edgeCurve>}>();
+ private frozen=false;
  /** Build only when world geometry changes; camera frames reuse both index and curves. */
- prepare(nodes:readonly End[]){let count=0,changed=false;for(const n of nodes){if(!n.id)continue;count++;const old=this.positions.get(n.id);if(!old||old.x!==n.x||old.y!==n.y||old.radius!==n.radius)changed=true;}if(!changed&&count===this.positions.size)return;this.positions.clear();this.revision++;this.cells.clear();for(const source of nodes){if(!source.id)continue;const n={id:source.id,x:source.x,y:source.y,radius:source.radius};this.positions.set(n.id,n);const key=Math.floor(n.x/256)+':'+Math.floor(n.y/256),cell=this.cells.get(key);if(cell)cell.push(n);else this.cells.set(key,[n]);}}
+ prepare(nodes:readonly End[]){if(this.frozen)return;let count=0,changed=false;for(const n of nodes){if(!n.id)continue;count++;const old=this.positions.get(n.id);if(!old||old.x!==n.x||old.y!==n.y||old.radius!==n.radius)changed=true;}if(!changed&&count===this.positions.size)return;this.positions.clear();this.revision++;this.cells.clear();for(const source of nodes){if(!source.id)continue;const n={id:source.id,x:source.x,y:source.y,radius:source.radius};this.positions.set(n.id,n);const key=Math.floor(n.x/256)+':'+Math.floor(n.y/256),cell=this.cells.get(key);if(cell)cell.push(n);else this.cells.set(key,[n]);}}
+ /** A gesture owns the curve frame: camera-only frames reuse the settled world routes. */
+ freeze(value=true){this.frozen=value}
+ release(){this.frozen=false}
 
  private route(a:End,b:End,preferred=0){const curve=edgeCurve(a,b);if(!curve||!this.cells.size)return curve;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),ux=dx/d,uy=dy/d,seen=new Set<End>();let positive=0,negative=0,blocked=false;const steps=Math.min(16,Math.max(1,Math.ceil(d/160)));
   for(let i=0;i<=steps&&seen.size<64;i++){const x=Math.floor((a.x+dx*i/steps)/256),y=Math.floor((a.y+dy*i/steps)/256);for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++)for(const n of this.cells.get((x+ox)+':'+(y+oy))||[]){if(seen.size>=64)break;if(seen.has(n)||n.id===a.id||n.id===b.id)continue;seen.add(n);const t=((n.x-a.x)*ux+(n.y-a.y)*uy)/d;if(t<.08||t>.92)continue;const normal=-(n.x-a.x)*uy+(n.y-a.y)*ux,r=n.radius+8;if(Math.abs(normal)<r){blocked=true;const weight=2*t*(1-t);positive=Math.max(positive,(normal+r)/weight);negative=Math.max(negative,(r-normal)/weight);}}}
@@ -24,6 +28,7 @@ export class EdgeCurves{
  }
  get(link:object,a:End,b:End){
   const known=this.entries.get(link);
+  if(this.frozen&&known)return known.curve;
   if(known&&known.revision===this.revision&&known.ax===a.x&&known.ay===a.y&&known.ar===a.radius&&known.bx===b.x&&known.by===b.y&&known.br===b.radius)return known.curve;
   const curve=this.route(a,b,known?.side),dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,bend=curve?(-(curve.cx-(a.x+b.x)/2)*dy+(curve.cy-(a.y+b.y)/2)*dx)/d:0;this.entries.set(link,{revision:this.revision,side:Math.abs(bend)>14?Math.sign(bend):0,ax:a.x,ay:a.y,ar:a.radius,bx:b.x,by:b.y,br:b.radius,curve});return curve;
  }
