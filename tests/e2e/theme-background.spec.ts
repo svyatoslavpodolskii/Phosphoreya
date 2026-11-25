@@ -2,7 +2,7 @@ import {test,expect,type Page} from '@playwright/test';
 import {openSettings,closeSettings} from './helpers';
 
 const backdrop=(page:Page)=>page.locator('.theme-backdrop');
-const transforms=(page:Page)=>backdrop(page).locator('canvas').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('data-world-transform')));
+const transforms=(page:Page)=>backdrop(page).locator('canvas').evaluateAll(nodes=>nodes.flatMap(n=>JSON.parse((n as HTMLElement).dataset.worldTransforms||'[]') as string[]));
 async function boot(page:Page){await page.goto('/');await page.waitForLoadState('networkidle');await expect(page.locator('canvas.map')).toBeVisible();}
 async function setMode(page:Page,mode:string){
  await openSettings(page);await page.getByRole('button',{name:'Плагины →',exact:true}).click();await page.locator('.plugin-row').filter({hasText:'Темы и атмосфера'}).getByRole('button',{name:'Настройки',exact:true}).click();

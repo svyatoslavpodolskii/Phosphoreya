@@ -7,6 +7,7 @@ export function diagnostics(counts:{atoms:number;links:number}){
   viewport:{width:innerWidth,height:innerHeight,visibleHeight:visualViewport?.height??innerHeight,dpr:devicePixelRatio},
   cameraPerformance:cameraMetrics.snapshot(),
   gpuSurface:gpu?{width:gpu.width,height:gpu.height,device:gpu.dataset.device||'',antialias:gpu.dataset.antialias,textureBuilds:Number(gpu.dataset.textureBuilds||0),curveBuilds:Number(gpu.dataset.curveBuilds||0)}:null,
+  rendererFailure:map?.dataset.rendererFailure||null,background:Array.from(document.querySelectorAll<HTMLCanvasElement>('.theme-backdrop canvas')).map(c=>({renderer:c.dataset.backgroundRenderer,width:c.width,height:c.height,tileUploads:Number(c.dataset.tileUploads||0),surfaceResizes:Number(c.dataset.surfaceResizes||0),frames:Number(c.dataset.backgroundFrames||0),contextLost:c.dataset.contextLost==='true'})),
   renderer:map?.dataset.renderer??'not-ready',rendererPending:map?.dataset.rendererPending==='true',
   firstMapMs:map?.dataset.startupMs?Number(map.dataset.startupMs):null,
   dataReadyMs:performance.getEntriesByName('phosphora:data-ready').at(-1)?.startTime??null,

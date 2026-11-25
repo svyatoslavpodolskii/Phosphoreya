@@ -33,7 +33,7 @@ test('held pinch keeps animating without new touch events, with stable controls 
  const map=page.locator('canvas.map');await expect(map).toHaveAttribute('data-renderer-pending','false');
  const theme=createTheme('cadence-test','Cadence',{background:'#111111',accent:'#eeeeee',tint:'#777777'},{pattern:'stars',mode:'world',strength:.3,density:.2});
  await page.evaluate(theme=>window.dispatchEvent(new CustomEvent('phosphora-theme-change',{detail:theme})),theme);
- await expect(page.locator('.theme-backdrop canvas').first()).toHaveAttribute('data-world-transform',/./);
+ await expect(page.locator('.theme-backdrop canvas').first()).toHaveAttribute('data-world-transforms',/./);
  const session=await context.newCDPSession(page),points=(distance:number)=>[{id:1,x:195-distance/2,y:422},{id:2,x:195+distance/2,y:422}];
  const before=await page.locator('main').getAttribute('data-camera-rest-zoom');
  await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:points(90)});
@@ -41,7 +41,7 @@ test('held pinch keeps animating without new touch events, with stable controls 
  await expect.poll(async()=>Number(await map.getAttribute('data-zoom'))).toBeCloseTo(2,3);
  expect(await page.locator('main').getAttribute('data-camera-rest-zoom')).toBe(before);
  await expect.poll(async()=>Number((await page.locator('.folder-territories g').getAttribute('transform'))?.match(/scale\(([^)]+)/)?.[1])).toBeCloseTo(2,3);
- await expect.poll(async()=>Number((await page.locator('.theme-backdrop canvas').first().getAttribute('data-world-transform'))?.split(',')[0])).toBeCloseTo(2,3);
+ await expect.poll(async()=>Number(JSON.parse((await page.locator('.theme-backdrop canvas').first().getAttribute('data-world-transforms'))||'[]')[0]?.split(',')[0])).toBeCloseTo(2,3);
  for(const selector of ['header','footer'])expect(await page.locator(selector).first().evaluate(el=>getComputedStyle(el).opacity)).toBe('1');
  await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  await expect.poll(async()=>Number(await page.locator('main').getAttribute('data-camera-rest-zoom'))).toBeCloseTo(2,3);

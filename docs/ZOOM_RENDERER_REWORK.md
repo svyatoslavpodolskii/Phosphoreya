@@ -126,3 +126,34 @@ on this machine. Removing background/UI improves median but long periodic gaps
 remain even without them. It is an investigation tool, not a phone benchmark or
 proof that GPU/compositor delay has been identified. Real NP1 verification is
 still needed; no claim of fixed 60 FPS is justified.
+
+
+## 0.10.9: replace transformed background surfaces
+
+The user's paired NP1 traces finally isolate the moving backdrop: without it,
+continuous frame intervals are 16.6/16.7 ms; with it, queue wait p95 is 68.6 ms
+and maximum 117.3 ms. Both traces say renderer=canvas despite an existing
+Adreno WebGL surface. The map had fallen back after initialization, so previous
+WebGL benchmarks alone did not describe this device's active path. Its exact
+foreground exception is not yet reproduced; record the renderer failure in the
+next local diagnostic rather than claiming that part solved.
+
+The old background combined three 2x-viewport Canvas surfaces, SVG image
+patterns, CSS scaling and periodic CPU rerasterization. It is replaced with a
+small direct WebGL renderer: one viewport, one quad, three power-of-two static
+tiles with trilinear mipmaps, and uniform-only camera transforms. No viewport
+rasterization, surface resize or texture upload occurs during camera motion.
+Static mode also skips draws when the effective transforms stay unchanged.
+Without hardware WebGL, it uses pre-rasterized tile pyramids in Canvas2D.
+No new library or runtime asset download is needed.
+
+Canvas foreground quality is restored to up to DPR 2. The bounded raster atlas
+now has lazy prefiltered minification levels; zooming out no longer samples a
+large thin outline through one bilinear lookup. These levels are included in the
+existing 32 MiB budget. Data formats, stored coordinates and sync are unchanged.
+
+Validation includes NP1-sized Firefox WebGL world/parallax wide-zoom runs with
+35 unpinned notes, zero tile uploads/resizes during each gesture, and unchanged
+coordinates relative to the completed initial layout (not the pre-layout
+import). Desktop cadence is not evidence of NP1 FPS. Inspect mobile close and
+distant views, and run the Canvas fallback and reduced-motion paths as well.
