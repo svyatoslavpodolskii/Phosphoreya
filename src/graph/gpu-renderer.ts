@@ -203,7 +203,8 @@ export class GpuMapRenderer {
             if (n.soft) { const g=ctx.createRadialGradient(-n.radius*.3,-n.radius*.4,0,0,0,n.radius*1.5);g.addColorStop(0,n.color+'30');g.addColorStop(1,n.color+'08');ctx.fillStyle=g; }
             else ctx.fillStyle=n.color+'18';
             const path=nodeShape(n.shape,n.radius).path;ctx.fill(path);ctx.strokeStyle=n.ink;ctx.lineWidth=n.strokeWidth;if(n.style==='dashed')ctx.setLineDash([5,4]);ctx.stroke(path);
-            const texture=Texture.from(canvas);texture.source.autoGenerateMipmaps=true;texture.source.style.scaleMode='linear';
+            const texture=Texture.from(canvas);
+            if(texture.source?.style){texture.source.autoGenerateMipmaps=true;texture.source.style.addressMode='clamp-to-edge';texture.source.style.scaleMode='linear';}
             entry={texture,refs:0,bytes:Math.ceil(canvas.width*canvas.height*4*4/3),size};this.bodies.set(key,entry);this.textureBytes+=entry.bytes;this.built();
         }
         entry.refs++;return {key,...entry};

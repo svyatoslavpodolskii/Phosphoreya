@@ -7,6 +7,7 @@ const marker='phosphoraSurface';
 const top=()=>stack.at(-1);
 function dismiss(){const entry=top();if(entry&&!entry.options.blocked?.())entry.options.close();}
 function pointer(e:PointerEvent){consuming=false;const entry=top();if(!entry)return;const panel=entry.node.matches('.scrim,.context-scrim')?entry.node.firstElementChild:entry.node;
+ if((e.target as Element)?.closest?.('[data-surface-local="true"]'))return;
  if(panel?.contains(e.target as Node))return;consuming=true;e.preventDefault();e.stopImmediatePropagation();dismiss();}
 function swallow(e:Event){if(consuming){e.preventDefault();e.stopImmediatePropagation();}}
 function panel(entry:Entry){return (entry.node.matches('.scrim,.context-scrim')?entry.node.firstElementChild:entry.node) as HTMLElement|null;}
